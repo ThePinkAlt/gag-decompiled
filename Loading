@@ -1,0 +1,160 @@
+local HttpService = game:GetService("HttpService")
+
+local bannedClasses = {
+    Workspace = true,
+    Terrain = true,
+    TouchTransmitter = true,
+    BodyPosition = true,
+    BodyGyro = true,
+    -- add more if needed
+}
+
+local MAX_DEPTH = 10
+local YIELD_EVERY = 50
+local instancesCreated = 0
+
+local jsonURL = "https://raw.githubusercontent.com/ThePinkAlt/gag-decompiled/refs/heads/main/scriptless_decompiled_string.txt"
+
+local function getMaterialEnum(matName)
+    if not matName then return nil end
+    matName = tostring(matName)
+    -- Strip "Enum.Material." prefix if it exists
+    matName = matName:gsub("^Enum%.Material%.", "")
+    for _, mat in ipairs(Enum.Material:GetEnumItems()) do
+        if mat.Name:lower() == matName:lower() then
+            return mat
+        end
+    end
+    return nil
+end
+
+local function parseCFrame(str)
+    local nums = {}
+    for num in string.gmatch(str, "[-]?%d+%.?%d*") do
+        table.insert(nums, tonumber(num))
+    end
+    if #nums == 12 then
+        return CFrame.new(
+            nums[1], nums[2], nums[3],
+            nums[4], nums[5], nums[6],
+            nums[7], nums[8], nums[9],
+            nums[10], nums[11], nums[12]
+        )
+    end
+    return nil
+end
+
+local function createInstanceFromData(data, parent, depth)
+    depth = depth or 0
+    if depth > MAX_DEPTH then
+        warn("Max recursion depth reached at: " .. tostring(data.Name or "Unknown"))
+        return nil
+    end
+
+    if bannedClasses[data.ClassName] then
+        print("Skipping banned class: " .. data.ClassName)
+        if data.Children then
+            for _, childData in ipairs(data.Children) do
+                createInstanceFromData(childData, parent, depth + 1)
+            end
+        end
+        return nil
+    end
+
+    local success, inst = pcall(function()
+        return Instance.new(data.ClassName)
+    end)
+
+    if not success or not inst then
+        warn("Failed to create instance of class: " .. tostring(data.ClassName))
+        return nil
+    end
+
+    inst.Name = data.Name or "Unnamed"
+
+    local props = data.Properties or {}
+
+    if inst:IsA("BasePart") then
+        if props.Anchored ~= nil then inst.Anchored = props.Anchored end
+        if props.Transparency ~= nil then inst.Transparency = props.Transparency end
+        if props.CanCollide ~= nil then inst.CanCollide = props.CanCollide end
+
+        if props.Material ~= nil then
+            local mat = getMaterialEnum(props.Material)
+            if mat then
+                inst.Material = mat
+            else
+                warn("Unknown material:", props.Material)
+            end
+        end
+
+        if props.Color ~= nil and type(props.Color) == "table" then
+            inst.Color = Color3.new(props.Color.R or 0, props.Color.G or 0, props.Color.B or 0)
+        end
+
+        if props.Size ~= nil and type(props.Size) == "table" then
+            inst.Size = Vector3.new(props.Size.X or 1, props.Size.Y or 1, props.Size.Z or 1)
+        end
+
+        if props.CFrame ~= nil and type(props.CFrame) == "string" then
+            local cf = parseCFrame(props.CFrame)
+            if cf then 
+                inst.CFrame = cf
+            else
+                warn("Invalid CFrame string for instance:", inst.Name)
+            end
+        end
+    end
+
+    inst.Parent = parent
+    instancesCreated = instancesCreated + 1
+
+    if instancesCreated % YIELD_EVERY == 0 then
+        wait()
+    end
+
+    if data.Children then
+        for _, childData in ipairs(data.Children) do
+            createInstanceFromData(childData, inst, depth + 1)
+        end
+    end
+
+    return inst
+end
+
+local function loadFromURL(url, parent)
+    print("Fetching JSON from URL: " .. url)
+    local success, jsonString = pcall(function()
+        return HttpService:GetAsync(url)
+    end)
+    if not success then
+        warn("Failed to fetch JSON: " .. tostring(jsonString))
+        return
+    end
+
+    print("JSON fetched, length: " .. #jsonString)
+
+    local successDecode, data = pcall(function()
+        return HttpService:JSONDecode(jsonString)
+    end)
+    if not successDecode then
+        warn("Failed to decode JSON: " .. tostring(data))
+        return
+    end
+
+    if type(data) ~= "table" then
+        warn("Invalid data format, expected a table of instances")
+        return
+    end
+
+    print("Decoded data, starting instance creation")
+
+    for _, instanceData in ipairs(data) do
+        createInstanceFromData(instanceData, parent)
+    end
+
+    print("Loading complete! Total instances created:", instancesCreated)
+end
+
+-- Run it
+loadFromURL(jsonURL, game.Workspace)
