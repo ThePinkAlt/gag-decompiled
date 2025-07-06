@@ -1,0 +1,71 @@
+-- ✅  SAVE SCRIPT  ==================================================
+--  Serialises every child of Workspace (but not Workspace/Terrain themselves)
+--  Stores:  Name, ClassName, Anchored, Transparency, CanCollide,
+--           Material, Color, CFrame, **Size**                    
+
+local HttpService = game:GetService("HttpService")
+
+-- ─── configuration ────────────────────────────────────────────────
+local root = game.Workspace                -- what to serialise
+local bannedClasses = {                    -- skip these classes
+	Workspace = true,
+	Terrain   = true,
+}
+
+-- helper: convert CFrame → string (12 comma‑separated numbers)
+local function cframeToString(cf)
+	return string.format(
+		"%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
+		cf.Position.X, cf.Position.Y, cf.Position.Z,
+		cf.LookVector.X,  cf.LookVector.Y,  cf.LookVector.Z,
+		cf.RightVector.X, cf.RightVector.Y, cf.RightVector.Z,
+		cf.UpVector.X,    cf.UpVector.Y,    cf.UpVector.Z
+	)
+end
+
+-- recursive serialiser ----------------------------------------------------------
+local function serialise(inst)
+	if bannedClasses[inst.ClassName] then return nil end
+
+	-- gather properties for BaseParts
+	local props = {}
+	if inst:IsA("BasePart") then
+		props = {
+			Anchored     = inst.Anchored,
+			Transparency = inst.Transparency,
+			CanCollide   = inst.CanCollide,
+			Material     = tostring(inst.Material),          -- e.g.  "Enum.Material.Neon"
+			Color        = { R = inst.Color.R, G = inst.Color.G, B = inst.Color.B },
+			CFrame       = cframeToString(inst.CFrame),
+			Size         = { X = inst.Size.X, Y = inst.Size.Y, Z = inst.Size.Z }, -- ★ NEW
+		}
+	end
+
+	local data = {
+		ClassName = inst.ClassName,
+		Name      = inst.Name,
+		Properties= props,
+		Children  = {},
+	}
+
+	for _, child in ipairs(inst:GetChildren()) do
+		local cData = serialise(child)
+		if cData then
+			table.insert(data.Children, cData)
+		end
+	end
+
+	return data
+end
+
+-- serialise all children of Workspace (skip the Workspace node itself)
+local all = {}
+for _, child in ipairs(root:GetChildren()) do
+	local d = serialise(child)
+	if d then table.insert(all, d) end
+end
+
+local jsonString = HttpService:JSONEncode(all)
+print("Serialized JSON length:", #jsonString)
+-- print(jsonString)            -- uncomment to view / copy
+-- You can now upload or save `jsonString` wherever you like
